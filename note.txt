@@ -1,0 +1,31 @@
+mvn clean
+mvn compile
+mvn jar:jar
+mvn clean package
+
+docker-compose -f docker-compose-kafka.yml up
+docker run --name manning-postgres -e POSTGRES_PASSWORD=secret -p 5432:5432 -d postgres:12.2
+
+sql="SELECT schema_name FROM information_schema.schemata" && \
+  docker exec -it manning-postgres psql -U postgres -c "${sql}"
+
+sql="CREATE TABLE devices (uuid varchar, state boolean)" && \
+  docker exec -it manning-postgres psql -U postgres -c "${sql}"
+
+docker exec -it manning-postgres psql -U postgres -c '\dt'
+
+sql="SELECT count(*) FROM devices" && \
+  docker exec -it manning-postgres psql -U postgres -c "${sql}"
+
+java -jar m1/target/m1-1.0-SNAPSHOT.jar server m1/src/main/resources/api-server.yml
+java -jar target/event-generators-1.2-SNAPSHOT-jar-with-dependencies.jar events --target http://localhost:8080/api/send
+
+java -cp m1/target/m1-1.0-SNAPSHOT.jar com.jesseyates.manning.m1.stream.DeviceStateStream stream m1/src/main/resources/stream.yml
+
+java -jar target/energy-kafka-1.0-SNAPSHOT.jar server src/main/resources/api-server.yml
+java -jar target/event-generators-1.2-SNAPSHOT-jar-with-dependencies.jar events --target http://localhost:8080/api/send
+
+java -cp target/energy-kafka-1.0-SNAPSHOT.jar com.energy.stream.DeviceStateStream stream src/main/resources/stream.yml
+
+
+docker stop manning-postgres && docker rm manning-postgres
